@@ -1,0 +1,19 @@
+# Install a CUDA-enabled PyTorch build separately before this file.
+diffusers>=0.35.1,<0.39
+transformers>=4.46,<5
+accelerate>=1.0
+safetensors>=0.4.5
+modelscope>=1.18
+huggingface-hub>=0.25
+sentencepiece>=0.2
+protobuf>=4.25
+nibabel>=5.2
+numpy>=1.26,<3
+scipy>=1.12
+scikit-image>=0.24
+scikit-learn>=1.5
+Pillow>=10.4
+PyYAML>=6.0
+pandas>=2.2
+tqdm>=4.66
+matplotlib>=3.9
