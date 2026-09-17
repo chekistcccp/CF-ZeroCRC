@@ -1,0 +1,60 @@
+model:
+  path: models/sd35-medium
+  dtype: bfloat16
+  device: cuda
+  prompt_cache: cache/sd35_prompt_embeddings.pt
+
+prompts:
+  neutral: >-
+    An axial abdominal CT image. Preserve the anatomical structures,
+    tissue appearance and CT imaging characteristics.
+  healthy: >-
+    An axial abdominal CT image showing normal colorectal bowel wall without
+    focal mass, tumor, irregular wall thickening or malignant lesion.
+    Preserve all other anatomical structures and CT imaging characteristics.
+  abnormal: >-
+    An axial abdominal CT image showing colorectal cancer with focal bowel
+    wall thickening or a colorectal mass. Preserve the CT imaging characteristics.
+
+ct:
+  window_low: -160.0
+  window_high: 240.0
+  body_threshold_hu: -500.0
+
+flow:
+  scheduler_steps: 100
+  coarse_noise_levels: [0.25]
+  fine_noise_levels: [0.15, 0.25, 0.35]
+  coarse_seed: 42
+
+coarse:
+  enabled: true
+  resolution: 256
+  stride_z: 2
+  candidate_percentile: 80.0
+  top_fraction_for_score: 0.05
+  expand_slices: 3
+  min_candidate_slices: 12
+
+fine:
+  resolution: 512
+  seeds: [42, 123, 3407]
+  use_reconstruction: true
+  reconstruction_strength: 0.25
+  reconstruction_steps: 20
+  guidance_scale: 3.5
+  consistency_tau: 0.03
+
+fusion:
+  flow_weight: 0.50
+  reconstruction_weight: 0.30
+  ssim_weight: 0.20
+
+postprocess:
+  z_sigma: 1.0
+  threshold_method: mad
+  mad_k: 3.5
+  percentile: 99.0
+  min_2d_area: 24
+  min_3d_voxels: 100
+  closing_iterations: 1
