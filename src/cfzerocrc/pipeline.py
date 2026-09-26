@@ -8,23 +8,20 @@ from typing import Any
 import numpy as np
 
 from .io import body_mask_2d, load_nifti, resize_float_map, save_nifti_like, to_rgb_pil
+from .datasets import nifti_id, nifti_files
 from .model import SD35CounterfactualEngine
 from .postprocess import clean_mask_2d, connected_components_3d, robust_normalize, smooth_z, threshold_map, top_fraction_mean
 
 
 def _case_id(path: Path) -> str:
-    name = path.name
-    if name.endswith('.nii.gz'):
-        return name[:-7]
-    return path.stem
+    return nifti_id(path)
 
 
 def list_nifti(input_path: str | Path) -> list[Path]:
     p = Path(input_path)
     if p.is_file():
         return [p]
-    files = sorted(list(p.rglob('*.nii.gz')) + list(p.rglob('*.nii')))
-    return list(dict.fromkeys(files))
+    return nifti_files(p)
 
 
 def _select_candidates(scores: dict[int, float], n_slices: int, cfg: dict[str, Any]) -> list[int]:
@@ -46,11 +43,11 @@ def _select_candidates(scores: dict[int, float], n_slices: int, cfg: dict[str, A
     return sorted(expanded)
 
 
-def process_case(path: str | Path, engine: SD35CounterfactualEngine, cfg: dict[str, Any], output_dir: str | Path, mode: str = 'coarse_fine') -> dict[str, Any]:
+def process_case(path: str | Path, engine: SD35CounterfactualEngine, cfg: dict[str, Any], output_dir: str | Path, mode: str = 'coarse_fine', case_id: str | None = None, label_path: str | Path | None = None) -> dict[str, Any]:
     path = Path(path)
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    case = _case_id(path)
+    case = case_id or _case_id(path)
     ref_img, volume = load_nifti(path)
     h, w, n_slices = volume.shape
     low = float(cfg['ct']['window_low'])
@@ -73,7 +70,7 @@ def process_case(path: str | Path, engine: SD35CounterfactualEngine, cfg: dict[s
             if body[:, :, z].sum() < 64:
                 continue
             pil = to_rgb_pil(volume[:, :, z], resolution, low, high)
-            m = engine.flow_map(pil, resolution, levels, seed)
+            m = engine.flow_map(pil, resolution, levels, seed, normalize=False)
             body_small = resize_float_map(body[:, :, z].astype(np.float32), (resolution, resolution)) > 0.5
             m = m * body_small
             coarse_scores[z] = top_fraction_mean(m, top_fraction, body_small)
@@ -90,12 +87,14 @@ def process_case(path: str | Path, engine: SD35CounterfactualEngine, cfg: dict[s
 
     for z in candidate_slices:
         pil = to_rgb_pil(volume[:, :, z], fine_resolution, low, high)
-        m, _ = engine.fine_map(pil)
+        m, details = engine.fine_map(pil)
         m = resize_float_map(m, (h, w))
         m *= body[:, :, z]
         m = robust_normalize(m, body[:, :, z])
-        heatmap[:, :, z] = m
-        fine_scores[z] = top_fraction_mean(m, top_fraction, body[:, :, z])
+        raw_flow = resize_float_map(details['flow_raw'], (h, w))
+        raw_strength = top_fraction_mean(raw_flow, top_fraction, body[:, :, z])
+        heatmap[:, :, z] = m * raw_strength
+        fine_scores[z] = raw_strength
 
     heatmap = smooth_z(heatmap, sigma=float(cfg['postprocess'].get('z_sigma', 1.0)))
     heatmap *= body
@@ -125,4 +124,4 @@ def process_case(path: str | Path, engine: SD35CounterfactualEngine, cfg: dict[s
     candidates_path = out_dir / f'{case}_candidates.json'
     candidates_path.write_text(json.dumps([c.to_dict() for c in candidates], ensure_ascii=False, indent=2), encoding='utf-8')
 
-    return {'case': case, 'input': str(path), 'heatmap': str(heatmap_path), 'mask': str(mask_path), 'candidates': str(candidates_path), 'fine_slices': len(candidate_slices), 'num_candidates': len(candidates)}
+    return {'case': case, 'input': str(path), 'label': str(label_path) if label_path else None, 'heatmap': str(heatmap_path), 'mask': str(mask_path), 'candidates': str(candidates_path), 'fine_slices': len(candidate_slices), 'num_candidates': len(candidates)}

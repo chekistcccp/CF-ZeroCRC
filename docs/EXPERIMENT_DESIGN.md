@@ -41,7 +41,7 @@ M(x,y,z)\in[0,1],
 - 模型来源：ModelScope `stabilityai/stable-diffusion-3.5-medium`
 - 框架：PyTorch + Diffusers
 - 推理精度：BF16
-- 目标硬件：单张 RTX 4090 48GB
+- 目标环境：WSL2 + CUDA；标准 RTX 4090 为 24GB 显存。先测单病例峰值显存和耗时，再决定批量方案
 - 第一阶段完全冻结 SD3.5，不使用 LoRA，不做监督训练。
 
 ModelScope 仅用于下载权重；运行时从本地 Diffusers 目录加载，不依赖 Hugging Face 在线访问。
@@ -140,7 +140,7 @@ M_{flow}=\frac{1}{3}\sum_s \operatorname{Norm}(M_{CF}^{s}).
 
 低噪声保留局部细节，中等噪声兼顾结构，高一些的噪声增强文本语义条件影响。
 
-Coarse stage 默认只使用 \(s=0.25\) 降低计算量。
+Coarse stage 默认只使用 \(s=0.25\) 降低计算量。跨切片选层使用未逐层归一化的原始 flow 强度；逐层归一化图仅用于层内空间定位。Fine stage 最终图按每层原始 flow 强度加权后再进行体积级归一化。该权重是否能跨扫描协议稳定，需要独立验证。
 
 ---
 
@@ -309,7 +309,7 @@ T=median(M)+k\cdot1.4826\cdot MAD(M).
 
 公开 segmentation mask 仅用于评价，不用于训练 SD3.5、学习 fusion weights 或优化 prompt。
 
-建议将少量病例设为 development subset，仅用于冻结超参数；最终测试病例不参与任何调参。
+原始 tar 放于 `data/MSD/`；解包后的 `imagesTr` 与 `labelsTr` 是公开带标注训练集，并非官方隐藏测试集。应事先固定病例级 development/evaluation 划分。若用 development 标注挑选超参数，方法仍可称为 training-free，但不能声称整个研究流程 annotation-free。
 
 ### 11.2 私有约 1000 例结直肠癌 CT
 
@@ -317,7 +317,7 @@ T=median(M)+k\cdot1.4826\cdot MAD(M).
 
 模型输入只使用 CT。
 
-理想情况下额外选 50–100 例，由医生提供粗矩形框或少量精细轮廓，仅用于独立评价。
+图像存于 `data/MSI/data/`，对应标签存于 `data/MSI/data2/`，以图像文件名前缀的纯数字编号与标签文件名匹配。标注仅用于独立评价，不输入模型。若该队列全部为癌症，仍需正常结肠或其他疾病阴性病例估计特异度；也应在预先固定的 MSI 子集上运行 exhaustive 模式，区分粗筛漏检与精定位失败。
 
 ---
 
@@ -371,7 +371,7 @@ T=median(M)+k\cdot1.4826\cdot MAD(M).
 - 2D vs 2D + z consistency；
 - 256 / 512 输入分辨率。
 
-已有 diffusion zero-shot tumor localization / segmentation 方法（尤其 DiffuGTS）应作为文献对照或可复现实验对照。
+已有 diffusion zero-shot tumor localization / segmentation 方法（尤其 DiffuGTS）应作为文献对照或可复现实验对照。另需加入正常结肠病例、无关疾病 prompt、健康/异常 prompt 互换、病灶外同器官区域，检验文本差分是否具有病灶特异性。
 
 ---
 

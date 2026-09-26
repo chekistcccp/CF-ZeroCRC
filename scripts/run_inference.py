@@ -10,6 +10,7 @@ from tqdm import tqdm
 
 from cfzerocrc.model import SD35CounterfactualEngine
 from cfzerocrc.pipeline import list_nifti, process_case
+from cfzerocrc.datasets import msi_pairs
 
 
 def main() -> None:
@@ -18,13 +19,17 @@ def main() -> None:
     parser.add_argument('--input', required=True, help='NIfTI file or directory')
     parser.add_argument('--output', required=True)
     parser.add_argument('--mode', choices=['coarse_fine', 'exhaustive'], default='coarse_fine')
+    parser.add_argument('--dataset', choices=['msd', 'msi', 'generic'], default='generic')
     args = parser.parse_args()
 
     with open(args.config, 'r', encoding='utf-8') as f:
         cfg = yaml.safe_load(f)
 
-    files = list_nifti(args.input)
-    if not files:
+    if args.dataset == 'msi':
+        cases = msi_pairs(Path(args.input))
+    else:
+        cases = [(None, path, None) for path in list_nifti(args.input)]
+    if not cases:
         raise SystemExit(f'No .nii/.nii.gz files found under {args.input}')
 
     out = Path(args.output)
@@ -32,8 +37,8 @@ def main() -> None:
     engine = SD35CounterfactualEngine(cfg)
 
     manifest = []
-    for path in tqdm(files, desc='Cases'):
-        result = process_case(path, engine, cfg, out, mode=args.mode)
+    for case_id, path, label_path in tqdm(cases, desc='Cases'):
+        result = process_case(path, engine, cfg, out, mode=args.mode, case_id=case_id, label_path=label_path)
         manifest.append(result)
         (out / 'manifest.json').write_text(json.dumps(manifest, indent=2), encoding='utf-8')
 

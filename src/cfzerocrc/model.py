@@ -161,6 +161,7 @@ class SD35CounterfactualEngine:
         resolution: int,
         noise_levels: list[float],
         seed: int,
+        normalize: bool = True,
     ) -> np.ndarray:
         """Compute the multi-noise tri-prompt counterfactual flow map."""
         z0 = self._encode_latent(image, resolution)
@@ -199,9 +200,10 @@ class SD35CounterfactualEngine:
             m = torch.relu(d_h - d_a).unsqueeze(1)
             m = F.interpolate(m, size=(resolution, resolution), mode="bilinear", align_corners=False)
             m_np = m[0, 0].detach().cpu().numpy().astype(np.float32)
-            maps.append(robust_normalize(m_np))
+            maps.append(m_np)
 
-        return robust_normalize(np.mean(maps, axis=0).astype(np.float32))
+        raw = np.mean(maps, axis=0).astype(np.float32)
+        return robust_normalize(raw) if normalize else raw
 
     @torch.inference_mode()
     def _reconstruct(self, image: Image.Image, key: str, resolution: int, seed: int) -> np.ndarray:
@@ -265,12 +267,15 @@ class SD35CounterfactualEngine:
 
         seed_maps: list[np.ndarray] = []
         flow_maps: list[np.ndarray] = []
+        raw_flow_maps: list[np.ndarray] = []
         rec_maps: list[np.ndarray] = []
         ssim_maps: list[np.ndarray] = []
 
         for seed in seeds:
-            flow = self.flow_map(image, resolution, noise_levels, seed)
+            raw_flow = self.flow_map(image, resolution, noise_levels, seed, normalize=False)
+            flow = robust_normalize(raw_flow)
             flow_maps.append(flow)
+            raw_flow_maps.append(raw_flow)
 
             if use_rec:
                 rec, ssim_map = self.reconstruction_maps(image, resolution, seed)
@@ -296,6 +301,7 @@ class SD35CounterfactualEngine:
 
         details = {
             "flow": np.mean(flow_maps, axis=0).astype(np.float32),
+            "flow_raw": np.mean(raw_flow_maps, axis=0).astype(np.float32),
             "reconstruction": np.mean(rec_maps, axis=0).astype(np.float32),
             "ssim": np.mean(ssim_maps, axis=0).astype(np.float32),
             "consistency": consistency,

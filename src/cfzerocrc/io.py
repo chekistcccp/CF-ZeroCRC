@@ -22,7 +22,10 @@ def load_nifti(path: str | Path) -> Tuple[nib.Nifti1Image, np.ndarray]:
 def save_nifti_like(reference: nib.Nifti1Image, data: np.ndarray, path: str | Path) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    out = nib.Nifti1Image(data, affine=reference.affine, header=reference.header.copy())
+    header = reference.header.copy()
+    header.set_data_dtype(data.dtype)
+    header.set_slope_inter(1.0, 0.0)
+    out = nib.Nifti1Image(data, affine=reference.affine, header=header)
     nib.save(out, str(path))
 
 

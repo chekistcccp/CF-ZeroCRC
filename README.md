@@ -1,176 +1,71 @@
 # CF-ZeroCRC
 
-**Tri-prompt Counterfactual Diffusion Flow for training-free colorectal tumor localization on CT.**
+Tri-prompt counterfactual diffusion flow for **training-free colorectal tumor localization on CT**. This is a research prototype, not a medical device or a clinical decision tool. The frozen backbone is Stable Diffusion 3.5 Medium, downloaded from ModelScope.
 
-This repository implements a research prototype based on **Stable Diffusion 3.5 Medium** for zero-shot / annotation-free abnormal-region localization in colorectal CT. The model weights are downloaded from **ModelScope** and inference is designed for a single **RTX 4090 48GB** GPU in BF16.
+The same noisy CT latent is evaluated with neutral (`P0`), healthy (`PH`), and cancer (`PA`) text. The primary response is `ReLU(||F(PH)-F(P0)||₂ - ||F(PA)-F(P0)||₂)`. See [the experiment design](docs/EXPERIMENT_DESIGN.md) for the hypothesis and required controls.
 
-> Research code only. This repository is not a medical device and must not be used for diagnosis or clinical decision-making.
+## WSL2 setup
 
-## Method at a glance
-
-For the same noisy CT latent `z_t`, SD3.5 receives three prompts:
-
-- `P0`: neutral CT description
-- `PH`: healthy / lesion-removed counterfactual
-- `PA`: colorectal-cancer counterfactual
-
-The core flow anomaly response is:
-
-```text
-D_H = ||F(z_t, PH) - F(z_t, P0)||_2
-D_A = ||F(z_t, PA) - F(z_t, P0)||_2
-M_CF = ReLU(D_H - D_A)
-```
-
-The fine stage optionally fuses:
-
-1. multi-noise counterfactual flow maps;
-2. paired counterfactual reconstruction residuals;
-3. differential local-SSIM maps;
-4. multi-seed consistency;
-5. z-axis continuity.
-
-See [`docs/EXPERIMENT_DESIGN.md`](docs/EXPERIMENT_DESIGN.md) for the full experimental design.
-
-## Repository layout
-
-```text
-CF-ZeroCRC/
-├── configs/default.yaml
-├── docs/EXPERIMENT_DESIGN.md
-├── scripts/
-│   ├── download_model.py
-│   ├── run_inference.py
-│   └── evaluate_msd.py
-├── src/cfzerocrc/
-│   ├── io.py
-│   ├── model.py
-│   ├── pipeline.py
-│   └── postprocess.py
-├── tests/
-├── requirements.txt
-├── pyproject.toml
-└── run.sh
-```
-
-## 1. Environment
-
-Create the Conda environment manually, then install dependencies:
+Run from a WSL2 Linux shell in the repository root. Verify GPU access with `nvidia-smi`. A standard RTX 4090 has 24 GB VRAM. Record peak VRAM and runtime on one case before a full run; the default fine stage is expensive.
 
 ```bash
 conda create -n cfzerocrc python=3.11 -y
 conda activate cfzerocrc
-
-# Install the CUDA build of PyTorch appropriate for your machine first.
-# Example only; choose the command recommended by pytorch.org for your CUDA setup.
+# Install a CUDA-enabled PyTorch build appropriate for the WSL2 driver first.
 pip install torch torchvision
-
 pip install -r requirements.txt
 pip install -e .
-```
-
-The code expects CUDA and is tuned for a 48GB 4090. CPU execution is not a practical target for SD3.5.
-
-## 2. Download SD3.5 Medium from ModelScope
-
-```bash
-python scripts/download_model.py \
-  --model-id stabilityai/stable-diffusion-3.5-medium \
-  --output models/sd35-medium
-```
-
-The downloader requests only the Diffusers-format directories needed by this project and skips the duplicate standalone checkpoint when ModelScope pattern filtering is available.
-
-## 3. Prepare data
-
-### Private CT
-
-Put `.nii` / `.nii.gz` volumes under a directory, for example:
-
-```text
-data/private/
-├── patient_0001.nii.gz
-├── patient_0002.nii.gz
-└── ...
-```
-
-No clinical variables are needed.
-
-### MSD Task10 Colon (recommended for quantitative evaluation)
-
-Expected layout:
-
-```text
-data/Task10_Colon/
-├── imagesTr/
-│   ├── colon_001.nii.gz
-│   └── ...
-└── labelsTr/
-    ├── colon_001.nii.gz
-    └── ...
-```
-
-## 4. Run inference
-
-Fast coarse-to-fine mode for the private cohort:
-
-```bash
-python scripts/run_inference.py \
-  --config configs/default.yaml \
-  --input data/private \
-  --output outputs/private \
-  --mode coarse_fine
-```
-
-Exhaustive fine inference for a small quantitative set:
-
-```bash
-python scripts/run_inference.py \
-  --config configs/default.yaml \
-  --input data/Task10_Colon/imagesTr \
-  --output outputs/msd \
-  --mode exhaustive
-```
-
-Outputs per case include:
-
-- continuous 3D anomaly heatmap (`*_heatmap.nii.gz`);
-- thresholded candidate mask (`*_mask.nii.gz`);
-- slice-level scores (`*_slices.csv`);
-- connected-component candidates (`*_candidates.json`).
-
-## 5. Evaluate on MSD Colon
-
-```bash
-python scripts/evaluate_msd.py \
-  --pred-dir outputs/msd \
-  --gt-dir data/Task10_Colon/labelsTr \
-  --output outputs/msd_metrics.json
-```
-
-Implemented metrics:
-
-- pixel/voxel AUROC;
-- AUPRC;
-- Dice after unsupervised thresholding;
-- pointing-game accuracy;
-- 3D bounding-box IoU.
-
-For publication-quality experiments, report FROC as an additional detection metric after defining a fixed connected-component protocol.
-
-## 6. Convenience launcher
-
-```bash
+pip install pytest
+PYTHONPATH=src python -m pytest -q
 bash run.sh download
-bash run.sh infer data/private outputs/private
-bash run.sh exhaustive data/Task10_Colon/imagesTr outputs/msd
-bash run.sh eval outputs/msd data/Task10_Colon/labelsTr outputs/msd_metrics.json
 ```
 
-## Important experimental rule
+The model directory defaults to `models/sd35-medium`. Adjust `configs/default.yaml` if it is elsewhere. Large data and model files are excluded by `.gitignore`.
 
-Do **not** tune thresholds, prompt wording, noise levels, or fusion weights on the final test set. Use a small development subset or fully label-free defaults, then freeze them before evaluation.
+## Data layout
 
-## Model license
+Place the original MSD Colon archive in `data/MSD/` as a single `.tar`, `.tar.gz`, or `.tgz` file. `bash run.sh prepare-msd` extracts it safely and finds its `imagesTr/` and `labelsTr/` directories, even when the archive contains an outer `Task10_Colon/` folder. MSD `imagesTr` and `labelsTr` are the public **labeled training set**; make a frozen development/evaluation split before tuning.
 
-Stable Diffusion 3.5 Medium is distributed under Stability AI's model license. Review the upstream license before downloading or redistributing weights. Model weights are intentionally excluded from this repository.
+MSI files must have this structure:
+
+```text
+data/MSI/
+├── data/
+│   └── 10001_men_jing_mai(0.5mm_low)_20180808084217.nii.gz
+└── data2/
+    └── 10001.nii.gz
+```
+
+For each MSI image, the leading digits before its other filename characters must equal a pure-digit label filename. The software rejects missing or duplicate pairs. Labels are never sent to the model; they are read only during evaluation.
+
+## Run
+
+```bash
+bash run.sh prepare-msd
+bash run.sh msd
+bash run.sh eval-msd
+bash run.sh msi
+bash run.sh eval-msi
+```
+
+`msd` runs exhaustive fine inference on valid body slices and writes `outputs/msd/`. `msi` uses coarse-to-fine inference and writes `outputs/msi/`. For fair MSI localization comparisons, run exhaustive mode on a predefined subset as well: coarse selection can miss an entire lesion.
+
+Individual commands:
+
+```bash
+python scripts/run_inference.py --dataset msi --config configs/default.yaml --input data/MSI --output outputs/msi --mode coarse_fine
+python scripts/run_inference.py --dataset msd --config configs/default.yaml --input data/MSD/Task10_Colon/imagesTr --output outputs/msd --mode exhaustive
+python scripts/evaluate_msd.py --dataset msi --pred-dir outputs/msi --gt-dir data/MSI --output outputs/msi_metrics.json
+```
+
+The extracted MSD directory may differ from the example path; `run.sh` discovers it automatically. Every case generates a continuous NIfTI heatmap, a binary mask, per-slice scores, connected-component candidates, and a manifest. MSI output names use the numeric case ID.
+
+## Evaluation and interpretation
+
+Evaluation requires predictions for **every** label in the selected cohort. Labels are resampled to prediction space using NIfTI affines; a matching array shape alone is insufficient. AUROC and AUPRC are calculated inside a label-free body mask. Report macro case metrics and the number of evaluated cases. A missing prediction stops evaluation.
+
+Coarse selection uses raw flow strength. In the fine stage, within-slice normalized fusion is weighted by raw flow strength before volume normalization to restore a slice-level amplitude signal. Its calibration across scans still needs empirical validation. The current 3D box IoU uses the union of predicted components. Implement lesion-level FROC with a fixed component matching and ranking rule before making a detection claim.
+
+Do not tune prompts, noise levels, thresholds, or fusion weights on the final evaluation cases. If labeled development cases guide these settings, describe the method as **training-free**, not strictly annotation-free. Test normal colon cases, irrelevant-disease prompts, and prompt swaps to check whether the signal reflects lesions rather than text-conditioning strength. A cohort containing only cancer cases cannot establish screening specificity.
+
+Stable Diffusion 3.5 Medium weights have their own upstream license; review it before downloading or redistributing weights.
