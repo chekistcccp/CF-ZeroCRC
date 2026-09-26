@@ -2,60 +2,26 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-CMD="${1:-help}"
+if [ "$#" -ne 0 ]; then
+  echo "Usage: bash run.sh" >&2
+  exit 2
+fi
 
-case "$CMD" in
-  download)
-    python scripts/download_model.py --output models/sd35-medium
-    ;;
-  infer)
-    INPUT="${2:-data/private}"
-    OUTPUT="${3:-outputs/private}"
-    python scripts/run_inference.py --config configs/default.yaml --input "$INPUT" --output "$OUTPUT" --mode coarse_fine
-    ;;
-  exhaustive)
-    INPUT="${2:-data/Task10_Colon/imagesTr}"
-    OUTPUT="${3:-outputs/msd}"
-    python scripts/run_inference.py --config configs/default.yaml --input "$INPUT" --output "$OUTPUT" --mode exhaustive
-    ;;
-  prepare-msd)
-    python scripts/prepare_msd.py --root data/MSD
-    ;;
-  msd)
-    python scripts/prepare_msd.py --root data/MSD
-    INPUT="$(find data/MSD -type d -name imagesTr -print -quit)"
-    test -n "$INPUT"
-    python scripts/run_inference.py --dataset msd --config configs/default.yaml --input "$INPUT" --output outputs/msd --mode exhaustive
-    ;;
-  msi)
-    python scripts/run_inference.py --dataset msi --config configs/default.yaml --input data/MSI --output outputs/msi --mode coarse_fine
-    ;;
-  eval-msd)
-    LABELS="$(find data/MSD -type d -name labelsTr -print -quit)"
-    test -n "$LABELS"
-    python scripts/evaluate_msd.py --dataset msd --pred-dir outputs/msd --gt-dir "$LABELS" --output outputs/msd_metrics.json
-    ;;
-  eval-msi)
-    python scripts/evaluate_msd.py --dataset msi --pred-dir outputs/msi --gt-dir data/MSI --output outputs/msi_metrics.json
-    ;;
-  eval)
-    PRED="${2:-outputs/msd}"
-    GT="${3:-data/Task10_Colon/labelsTr}"
-    OUT="${4:-outputs/msd_metrics.json}"
-    python scripts/evaluate_msd.py --pred-dir "$PRED" --gt-dir "$GT" --output "$OUT"
-    ;;
-  *)
-    cat <<'HELP'
-Usage:
-  bash run.sh download
-  bash run.sh infer [input_dir] [output_dir]
-  bash run.sh exhaustive [imagesTr_dir] [output_dir]
-  bash run.sh eval [pred_dir] [labelsTr_dir] [metrics_json]
-  bash run.sh prepare-msd
-  bash run.sh msd
-  bash run.sh msi
-  bash run.sh eval-msd
-  bash run.sh eval-msi
-HELP
-    ;;
-esac
+SYSTEM_PYTHON="${PYTHON_BIN:-python3}"
+VENV=".venv"
+if [ ! -x "$VENV/bin/python" ]; then
+  "$SYSTEM_PYTHON" -m venv "$VENV"
+fi
+PYTHON="$VENV/bin/python"
+
+DEPS_KEY="$(sha256sum requirements.txt pyproject.toml | sha256sum | cut -d' ' -f1)"
+INSTALLED_KEY="$(cat "$VENV/.cfzerocrc-deps" 2>/dev/null || true)"
+if [ "$INSTALLED_KEY" != "$DEPS_KEY" ]; then
+  "$PYTHON" -m pip install --upgrade pip
+  "$PYTHON" -m pip install torch torchvision
+  "$PYTHON" -m pip install -r requirements.txt -e .
+  printf '%s\n' "$DEPS_KEY" > "$VENV/.cfzerocrc-deps"
+fi
+
+"$PYTHON" -c 'import torch; assert torch.cuda.is_available(), "CUDA is unavailable in WSL2; check the NVIDIA driver and WSL GPU passthrough"'
+"$PYTHON" scripts/run_all.py

@@ -6,25 +6,19 @@ The same noisy CT latent is evaluated with neutral (`P0`), healthy (`PH`), and c
 
 ## WSL2 setup
 
-Run from a WSL2 Linux shell in the repository root. Verify GPU access with `nvidia-smi`. A standard RTX 4090 has 24 GB VRAM. Record peak VRAM and runtime on one case before a full run; the default fine stage is expensive.
+Run from a WSL2 Linux shell in the repository root. Verify GPU access with `nvidia-smi` first. A standard RTX 4090 has 24 GB VRAM. The default fine stage is expensive.
 
 ```bash
-conda create -n cfzerocrc python=3.11 -y
-conda activate cfzerocrc
-# Install a CUDA-enabled PyTorch build appropriate for the WSL2 driver first.
-pip install torch torchvision
-pip install -r requirements.txt
-pip install -e .
-pip install pytest
-PYTHONPATH=src python -m pytest -q
-bash run.sh download
+bash run.sh
 ```
+
+`run.sh` creates `.venv`, installs PyTorch and project dependencies, checks CUDA, prepares MSD, checks MSI image/label pairs, downloads SD3.5 Medium if absent, then performs both datasets' inference and evaluation. It stops on an error and can be run again; complete cases from the same configuration are skipped. Python 3 with `venv`, `pip`, and `sha256sum` must be available in WSL2. Use `PYTHON_BIN=/path/to/python3 bash run.sh` only if your Python executable is not `python3`.
 
 The model directory defaults to `models/sd35-medium`. Adjust `configs/default.yaml` if it is elsewhere. Large data and model files are excluded by `.gitignore`.
 
 ## Data layout
 
-Place the original MSD Colon archive in `data/MSD/` as a single `.tar`, `.tar.gz`, or `.tgz` file. `bash run.sh prepare-msd` extracts it safely and finds its `imagesTr/` and `labelsTr/` directories, even when the archive contains an outer `Task10_Colon/` folder. MSD `imagesTr` and `labelsTr` are the public **labeled training set**; make a frozen development/evaluation split before tuning.
+Place the original MSD Colon archive in `data/MSD/` as a single `.tar`, `.tar.gz`, or `.tgz` file. The main script extracts it safely and finds its `imagesTr/` and `labelsTr/` directories, even when the archive contains an outer `Task10_Colon/` folder. MSD `imagesTr` and `labelsTr` are the public **labeled training set**; make a frozen development/evaluation split before tuning.
 
 MSI files must have this structure:
 
@@ -38,25 +32,9 @@ data/MSI/
 
 For each MSI image, the leading digits before its other filename characters must equal a pure-digit label filename. The software rejects missing or duplicate pairs. Labels are never sent to the model; they are read only during evaluation.
 
-## Run
+## Pipeline outputs
 
-```bash
-bash run.sh prepare-msd
-bash run.sh msd
-bash run.sh eval-msd
-bash run.sh msi
-bash run.sh eval-msi
-```
-
-`msd` runs exhaustive fine inference on valid body slices and writes `outputs/msd/`. `msi` uses coarse-to-fine inference and writes `outputs/msi/`. For fair MSI localization comparisons, run exhaustive mode on a predefined subset as well: coarse selection can miss an entire lesion.
-
-Individual commands:
-
-```bash
-python scripts/run_inference.py --dataset msi --config configs/default.yaml --input data/MSI --output outputs/msi --mode coarse_fine
-python scripts/run_inference.py --dataset msd --config configs/default.yaml --input data/MSD/Task10_Colon/imagesTr --output outputs/msd --mode exhaustive
-python scripts/evaluate_msd.py --dataset msi --pred-dir outputs/msi --gt-dir data/MSI --output outputs/msi_metrics.json
-```
+The automatic MSD run uses exhaustive fine inference on valid body slices and writes `outputs/msd/` and `outputs/msd_metrics.json`. The MSI run uses coarse-to-fine inference and writes `outputs/msi/` and `outputs/msi_metrics.json`. For fair MSI localization comparisons, run exhaustive mode on a predefined subset as well: coarse selection can miss an entire lesion.
 
 The extracted MSD directory may differ from the example path; `run.sh` discovers it automatically. Every case generates a continuous NIfTI heatmap, a binary mask, per-slice scores, connected-component candidates, and a manifest. MSI output names use the numeric case ID.
 
