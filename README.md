@@ -43,7 +43,7 @@ CF-ZeroCRC/
 └── run.sh
 ```
 
-- **MSD**：`data/MSD/` 中放一个原始 `.tar`、`.tar.gz` 或 `.tgz` 压缩包。脚本会自动解包并查找 `imagesTr/` 和 `labelsTr/`；不要求事先手动解压。
+- **MSD**：`data/MSD/` 中放一个原始 `.tar`、`.tar.gz` 或 `.tgz` 压缩包。脚本会自动解包并查找 `imagesTr/` 和 `labelsTr/`；不要求事先手动解压。扫描病例时会忽略压缩包中的 `._*.nii.gz` 和 `__MACOSX` 元数据文件。
 - **MSI**：原始图像放在 `data/MSI/data/`，标注放在 `data/MSI/data2/`。图像文件名开头的连续数字须与纯数字标注文件名一致，例如上面的 `10001`。缺失或重复配对会直接报错。标注仅用于评估，不会输入模型。
 
 ## 一条命令运行完整实验

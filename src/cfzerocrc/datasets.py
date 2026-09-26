@@ -10,8 +10,18 @@ def nifti_id(path: Path) -> str:
     return path.name[:-7] if path.name.endswith('.nii.gz') else path.stem
 
 
+def is_macos_metadata(path: Path) -> bool:
+    """Recognize AppleDouble sidecars and macOS archive metadata folders."""
+    return any(part == '__MACOSX' or part.startswith('._') for part in path.parts)
+
+
 def nifti_files(root: Path) -> list[Path]:
-    return sorted(p for p in root.rglob('*') if p.is_file() and (p.name.endswith('.nii.gz') or p.name.endswith('.nii')))
+    return sorted(
+        p for p in root.rglob('*')
+        if p.is_file()
+        and not is_macos_metadata(p)
+        and (p.name.endswith('.nii.gz') or p.name.endswith('.nii'))
+    )
 
 
 def msi_pairs(root: Path) -> list[tuple[str, Path, Path]]:

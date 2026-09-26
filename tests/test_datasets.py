@@ -3,7 +3,18 @@ import tarfile
 
 import pytest
 
-from cfzerocrc.datasets import msi_pairs, prepare_msd
+from cfzerocrc.datasets import msi_pairs, nifti_files, prepare_msd
+
+
+def test_nifti_files_ignores_macos_sidecars(tmp_path):
+    images = tmp_path / 'Task10_Colon' / 'imagesTr'
+    images.mkdir(parents=True)
+    (images / 'colon_001.nii.gz').touch()
+    (images / '._colon_001.nii.gz').touch()
+    metadata = tmp_path / '__MACOSX' / 'Task10_Colon' / 'imagesTr'
+    metadata.mkdir(parents=True)
+    (metadata / '._colon_002.nii.gz').touch()
+    assert [path.name for path in nifti_files(tmp_path)] == ['colon_001.nii.gz']
 
 
 def test_msi_pairing_uses_numeric_prefix_and_fixed_directories(tmp_path):
