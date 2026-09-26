@@ -1,49 +1,65 @@
 # CF-ZeroCRC
 
-Tri-prompt counterfactual diffusion flow for **training-free colorectal tumor localization on CT**. This is a research prototype, not a medical device or a clinical decision tool. The frozen backbone is Stable Diffusion 3.5 Medium, downloaded from ModelScope.
+CF-ZeroCRC 是一个基于 Stable Diffusion 3.5 Medium 的**免训练结直肠肿瘤 CT 定位研究原型**。项目将同一张 CT 切片的带噪潜变量分别输入中性、健康和癌症三组文本条件，比较模型预测的差异，生成异常热图及三维候选区域。方法假设、公式和消融计划见 [实验设计](docs/EXPERIMENT_DESIGN.md)。
 
-The same noisy CT latent is evaluated with neutral (`P0`), healthy (`PH`), and cancer (`PA`) text. The primary response is `ReLU(||F(PH)-F(P0)||₂ - ||F(PA)-F(P0)||₂)`. See [the experiment design](docs/EXPERIMENT_DESIGN.md) for the hypothesis and required controls.
+本项目仅供研究，不是医疗器械，输出不得用于诊断或临床决策。
 
-## WSL2 setup
+## 运行前准备
 
-Run from a WSL2 Linux shell in the repository root. Verify GPU access with `nvidia-smi` first. A standard RTX 4090 has 24 GB VRAM. The default fine stage is expensive.
+在 **WSL2 的 Linux 终端**中使用本仓库。请先运行 `nvidia-smi`，确认 WSL2 可以访问 NVIDIA GPU。系统还需提供 `python3`、Python 的 `venv` 与 `pip`、`sha256sum`，并在首次安装依赖和下载模型时能够联网。标准 RTX 4090 为 24 GB 显存；完整实验耗时和显存占用取决于实际设备与数据规模。
+
+`run.sh` 会在仓库内创建 `.venv`，自动安装 PyTorch 和项目依赖，并检查 PyTorch 是否能使用 CUDA。若 Python 可执行文件不叫 `python3`，可通过 `PYTHON_BIN` 指定。
+
+## 数据放置
+
+在仓库根目录下按以下结构放置数据：
+
+```text
+CF-ZeroCRC/
+├── data/
+│   ├── MSD/
+│   │   └── Task10_Colon.tar
+│   └── MSI/
+│       ├── data/
+│       │   └── 10001_men_jing_mai(0.5mm_low)_20180808084217.nii.gz
+│       └── data2/
+│           └── 10001.nii.gz
+├── configs/default.yaml
+└── run.sh
+```
+
+- **MSD**：`data/MSD/` 中放一个原始 `.tar`、`.tar.gz` 或 `.tgz` 压缩包。脚本会自动解包并查找 `imagesTr/` 和 `labelsTr/`；不要求事先手动解压。
+- **MSI**：原始图像放在 `data/MSI/data/`，标注放在 `data/MSI/data2/`。图像文件名开头的连续数字须与纯数字标注文件名一致，例如上面的 `10001`。缺失或重复配对会直接报错。标注仅用于评估，不会输入模型。
+
+## 一条命令运行完整实验
+
+在仓库根目录执行：
 
 ```bash
 bash run.sh
 ```
 
-`run.sh` creates `.venv`, installs PyTorch and project dependencies, checks CUDA, prepares MSD, checks MSI image/label pairs, downloads SD3.5 Medium if absent, then performs both datasets' inference and evaluation. It stops on an error and can be run again; complete cases from the same configuration are skipped. Python 3 with `venv`, `pip`, and `sha256sum` must be available in WSL2. Use `PYTHON_BIN=/path/to/python3 bash run.sh` only if your Python executable is not `python3`.
+脚本将依次创建环境并安装依赖、检查 CUDA、准备 MSD 数据、核对 MSI 配对、下载缺失的模型权重，然后运行 MSD 推理与评估、MSI 推理与评估。默认模型目录为 `models/sd35-medium`；如需改变，请修改 `configs/default.yaml`。模型权重遵循上游许可，请在下载或再分发前核对许可条款。
 
-The model directory defaults to `models/sd35-medium`. Adjust `configs/default.yaml` if it is elsewhere. Large data and model files are excluded by `.gitignore`.
+运行中断后再次执行同一条命令即可继续。对于配置和输入路径相同、且输出文件完整的病例，推理会跳过已完成结果；配置改变时会重新处理病例。评估要求预期病例的预测文件全部存在，不会静默忽略缺失病例。
 
-## Data layout
-
-Place the original MSD Colon archive in `data/MSD/` as a single `.tar`, `.tar.gz`, or `.tgz` file. The main script extracts it safely and finds its `imagesTr/` and `labelsTr/` directories, even when the archive contains an outer `Task10_Colon/` folder. MSD `imagesTr` and `labelsTr` are the public **labeled training set**; make a frozen development/evaluation split before tuning.
-
-MSI files must have this structure:
+## 输出
 
 ```text
-data/MSI/
-├── data/
-│   └── 10001_men_jing_mai(0.5mm_low)_20180808084217.nii.gz
-└── data2/
-    └── 10001.nii.gz
+outputs/
+├── msd/                  # MSD 逐病例热图、二值掩膜、切片分数、候选区域及 manifest
+├── msd_metrics.json      # MSD 汇总与逐病例指标
+├── msi/                  # MSI 对应输出，文件名使用数字病例编号
+└── msi_metrics.json      # MSI 汇总与逐病例指标
 ```
 
-For each MSI image, the leading digits before its other filename characters must equal a pure-digit label filename. The software rejects missing or duplicate pairs. Labels are never sent to the model; they are read only during evaluation.
+MSD 默认对有效身体切片进行完整精细推理；MSI 默认采用先粗筛、再精细定位的方式。MSI 的粗筛可能漏掉整处病灶，因此比较定位方法时还应在预先确定的 MSI 子集上运行完整精细推理。
 
-## Pipeline outputs
+评估会依据 NIfTI 的空间仿射矩阵将标注对齐到预测图，并在不依赖标注生成的身体区域内计算 AUROC 和 AUPRC。当前还报告 Dice、指向准确率和粗粒度三维框 IoU；**尚未实现病灶级 FROC**，不应据此宣称已验证临床检出能力。
 
-The automatic MSD run uses exhaustive fine inference on valid body slices and writes `outputs/msd/` and `outputs/msd_metrics.json`. The MSI run uses coarse-to-fine inference and writes `outputs/msi/` and `outputs/msi_metrics.json`. For fair MSI localization comparisons, run exhaustive mode on a predefined subset as well: coarse selection can miss an entire lesion.
+## 实验解释
 
-The extracted MSD directory may differ from the example path; `run.sh` discovers it automatically. Every case generates a continuous NIfTI heatmap, a binary mask, per-slice scores, connected-component candidates, and a manifest. MSI output names use the numeric case ID.
+MSD 的 `imagesTr/`、`labelsTr/` 是公开带标注训练数据，不是官方隐藏测试集。若要报告独立评估结果，请在查看结果和调整提示词、噪声、阈值或融合权重之前，固定病例级开发集和评估集。使用开发集标注选择这些设置时，方法仍可称为“免训练”，但整个研究流程不能称为“完全无需标注”。
 
-## Evaluation and interpretation
+应增加正常结肠病例、无关疾病提示词和提示词互换等对照，以检验热图是否具有病灶特异性。若 MSI 队列全部为癌症病例，不能从该队列估计筛查特异度。
 
-Evaluation requires predictions for **every** label in the selected cohort. Labels are resampled to prediction space using NIfTI affines; a matching array shape alone is insufficient. AUROC and AUPRC are calculated inside a label-free body mask. Report macro case metrics and the number of evaluated cases. A missing prediction stops evaluation.
-
-Coarse selection uses raw flow strength. In the fine stage, within-slice normalized fusion is weighted by raw flow strength before volume normalization to restore a slice-level amplitude signal. Its calibration across scans still needs empirical validation. The current 3D box IoU uses the union of predicted components. Implement lesion-level FROC with a fixed component matching and ranking rule before making a detection claim.
-
-Do not tune prompts, noise levels, thresholds, or fusion weights on the final evaluation cases. If labeled development cases guide these settings, describe the method as **training-free**, not strictly annotation-free. Test normal colon cases, irrelevant-disease prompts, and prompt swaps to check whether the signal reflects lesions rather than text-conditioning strength. A cohort containing only cancer cases cannot establish screening specificity.
-
-Stable Diffusion 3.5 Medium weights have their own upstream license; review it before downloading or redistributing weights.
