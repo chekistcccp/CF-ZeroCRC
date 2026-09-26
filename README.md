@@ -6,9 +6,24 @@ CF-ZeroCRC 是一个基于 Stable Diffusion 3.5 Medium 的**免训练结直肠�
 
 ## 运行前准备
 
-在 **WSL2 的 Linux 终端**中使用本仓库。请先运行 `nvidia-smi`，确认 WSL2 可以访问 NVIDIA GPU。系统还需提供 `python3`、Python 的 `venv` 与 `pip`、`sha256sum`，并在首次安装依赖和下载模型时能够联网。标准 RTX 4090 为 24 GB 显存；完整实验耗时和显存占用取决于实际设备与数据规模。
+请在 **WSL2 的 Linux 终端**中使用本仓库。先运行 `nvidia-smi`，确认 WSL2 可以访问 NVIDIA GPU。标准 RTX 4090 为 24 GB 显存；完整实验耗时和显存占用取决于实际设备与数据规模。
 
-`run.sh` 会在仓库内创建 `.venv`，自动安装 PyTorch 和项目依赖，并检查 PyTorch 是否能使用 CUDA。若 Python 可执行文件不叫 `python3`，可通过 `PYTHON_BIN` 指定。
+**Conda 环境由使用者手动创建和安装依赖；`run.sh` 不会创建环境，也不会安装软件。** 在仓库根目录执行：
+
+```bash
+conda create -n cfzerocrc python=3.11 -y
+conda activate cfzerocrc
+```
+
+然后按照 [PyTorch 官方安装页](https://pytorch.org/get-started/locally/)选择 Linux、Pip 和适合设备的 CUDA 版本，在当前 Conda 环境中执行其安装命令，安装 `torch` 与 `torchvision`。再安装项目依赖：
+
+```bash
+python -m pip install -r requirements.txt
+python -m pip install -e .
+python -c "import torch; print(torch.cuda.is_available())"
+```
+
+最后一条命令必须输出 `True`。每次打开新的 WSL2 终端运行实验前，请先执行 `conda activate cfzerocrc`。`run.sh` 会检查当前是否处于非 base 的 Conda 环境、依赖是否可导入以及 CUDA 是否可用；检查失败时会给出错误并停止，不会自动修改环境。
 
 ## 数据放置
 
@@ -39,7 +54,7 @@ CF-ZeroCRC/
 bash run.sh
 ```
 
-脚本将依次创建环境并安装依赖、检查 CUDA、准备 MSD 数据、核对 MSI 配对、下载缺失的模型权重，然后运行 MSD 推理与评估、MSI 推理与评估。默认模型目录为 `models/sd35-medium`；如需改变，请修改 `configs/default.yaml`。模型权重遵循上游许可，请在下载或再分发前核对许可条款。
+脚本将先检查已激活的 Conda 环境和 CUDA，然后准备 MSD 数据、核对 MSI 配对、下载缺失的模型权重，依次运行 MSD 推理与评估、MSI 推理与评估。默认模型目录为 `models/sd35-medium`；如需改变，请修改 `configs/default.yaml`。模型权重遵循上游许可，请在下载或再分发前核对许可条款。
 
 运行中断后再次执行同一条命令即可继续。对于配置和输入路径相同、且输出文件完整的病例，推理会跳过已完成结果；配置改变时会重新处理病例。评估要求预期病例的预测文件全部存在，不会静默忽略缺失病例。
 
