@@ -31,6 +31,19 @@ def _calculate_shift(image_seq_len: int, base_seq_len: int, max_seq_len: int, ba
     return image_seq_len * m + b
 
 
+class _TransformerDeviceImg2ImgPipeline(StableDiffusion3Img2ImgPipeline):
+    """Run image-to-image inference on the transformer device.
+
+    Diffusers infers the pipeline device from the first module in its sorted
+    component list. Our cached text encoders stay on CPU, while the VAE and
+    transformer run on CUDA, so the default inference can move images to CPU.
+    """
+
+    @property
+    def _execution_device(self) -> torch.device:
+        return self.transformer.device
+
+
 class SD35CounterfactualEngine:
     """Frozen SD3.5 engine for tri-prompt counterfactual flow and reconstruction maps."""
 
@@ -47,7 +60,7 @@ class SD35CounterfactualEngine:
                 f"Model not found at {self.model_path}. Run scripts/download_model.py first."
             )
 
-        self.pipe = StableDiffusion3Img2ImgPipeline.from_pretrained(
+        self.pipe = _TransformerDeviceImg2ImgPipeline.from_pretrained(
             str(self.model_path),
             torch_dtype=self.dtype,
             local_files_only=True,
