@@ -64,4 +64,5 @@ def resize_float_map(arr: np.ndarray, shape_hw: tuple[int, int]) -> np.ndarray:
     h, w = shape_hw
     image = Image.fromarray(arr.astype(np.float32), mode="F")
     image = image.resize((w, h), Image.Resampling.BILINEAR)
-    return np.asarray(image, dtype=np.float32)
+    # np.asarray(PIL.Image) can share a read-only buffer; callers mask in place.
+    return np.array(image, dtype=np.float32, copy=True)
